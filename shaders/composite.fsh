@@ -88,9 +88,10 @@ void main() {
         lightColor = mix(lightColor, vec3(1.0, 0.5, 0.2), sunsetFactor);
     }
 
+    // If it's the sky background (depth == 1.0), we just output whatever was rendered
+    // by gbuffers_skybasic and gbuffers_skytextured (which includes the sun/moon).
     if (depth == 1.0) {
-        vec3 skyColor = mix(horizonColor, zenithColor, texcoord.y);
-        gl_FragData[0] = vec4(skyColor, 1.0);
+        gl_FragData[0] = baseColor;
         return;
     }
 
@@ -169,9 +170,9 @@ void main() {
         finalColor += spec * lightColor * shadow;
     }
 
-    // If it is a cloud (materialID == 5.0), bypass shadows and diffuse lighting
-    if (materialID == 5.0) {
-        finalColor = baseColor.rgb; // Render clouds fully bright / original color
+    // If it is a cloud (materialID == 5.0) or weather (materialID == 6.0), bypass shadows and diffuse lighting
+    if (materialID == 5.0 || materialID == 6.0) {
+        finalColor = baseColor.rgb; // Render clouds and rain fully bright / original color
     }
 
     // Underwater Fog Effect
