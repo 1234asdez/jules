@@ -45,11 +45,12 @@ void main() {
         float wave = sin(frameTimeCounter * waveSpeed + absPos.x + absPos.z) * waveStrength;
         wave += sin(frameTimeCounter * waveSpeed * 1.3 + absPos.x * 2.0) * (waveStrength * 0.5);
 
-        // Sway more near the top. We use the texture coordinate V (gl_MultiTexCoord0.y)
-        // which is usually ~0 at the top of a block and ~1 at the bottom in Minecraft.
-        // Wait, Minecraft V coords: 0 is top, 1 is bottom. So we want (1.0 - V) for grass to sway at top.
-        // For leaves, we just sway the whole block a little bit, or use a general noise.
-        float swayMultiplier = isGrass ? (1.0 - clamp(gl_MultiTexCoord0.y, 0.0, 1.0)) : 1.0;
+        // Sway more near the top. Since texture coordinates are on an atlas,
+        // we use the local Y coordinate of the block (fract(absPos.y)).
+        // Vertices at the top of the block will be near 1.0, pinning the bottom near 0.0.
+        // Subtract a small epsilon to prevent floating point wrapping at exact block boundaries.
+        float localY = fract(absPos.y - 0.01);
+        float swayMultiplier = isGrass ? localY : 1.0;
 
         worldPos.x += wave * swayMultiplier;
         worldPos.z += wave * swayMultiplier * 0.5; // Slight diagonal sway

@@ -21,6 +21,7 @@ uniform mat4 shadowProjection;
 uniform vec3 sunPosition;
 uniform vec3 moonPosition;
 uniform int worldTime;
+uniform int isEyeInWater;
 
 /* DRAWBUFFERS:0 */
 
@@ -65,8 +66,30 @@ void main() {
     vec4 lmData = texture2D(colortex2, texcoord);
     float depth = texture2D(depthtex0, texcoord).r;
 
+    bool isDay = (worldTime < 13000 || worldTime > 23000);
+
+    // Calculate basic sky and light colors based on time
+    vec3 zenithColor = isDay ? vec3(0.1, 0.3, 0.6) : vec3(0.01, 0.02, 0.05);
+    vec3 horizonColor = isDay ? vec3(0.5, 0.7, 0.9) : vec3(0.05, 0.1, 0.2);
+    vec3 lightColor = isDay ? vec3(1.0, 0.95, 0.85) : vec3(0.15, 0.25, 0.45);
+
+    // Sunset / Sunrise logic
+    float sunsetFactor = 0.0;
+    if (worldTime > 12000 && worldTime < 14000) {
+        sunsetFactor = 1.0 - abs(worldTime - 13000.0) / 1000.0;
+    } else if (worldTime > 22000 || worldTime < 1000) {
+        float timeMod = worldTime > 22000 ? worldTime - 24000.0 : worldTime;
+        sunsetFactor = 1.0 - abs(timeMod + 1000.0) / 1000.0; // peaking at 23000
+    }
+
+    if (sunsetFactor > 0.0) {
+        vec3 sunsetColor = vec3(1.0, 0.4, 0.1);
+        horizonColor = mix(horizonColor, sunsetColor, sunsetFactor);
+        lightColor = mix(lightColor, vec3(1.0, 0.5, 0.2), sunsetFactor);
+    }
+
     if (depth == 1.0) {
-        vec3 skyColor = mix(vec3(0.5, 0.7, 0.9), vec3(0.1, 0.3, 0.6), texcoord.y);
+        vec3 skyColor = mix(horizonColor, zenithColor, texcoord.y);
         gl_FragData[0] = vec4(skyColor, 1.0);
         return;
     }
@@ -78,8 +101,6 @@ void main() {
     vec3 viewPos = getScreenSpacePosition(texcoord, depth);
     vec3 worldPos = (gbufferModelViewInverse * vec4(viewPos, 1.0)).xyz;
 
-    bool isDay = (worldTime < 13000 || worldTime > 23000);
-
     // The MOST reliable way to align lighting perfectly with shadows:
     // Extract the light direction directly from the shadow transformation matrix.
     // The shadowModelView maps world coordinates to shadow view space, where +Z points away from the light.
@@ -89,8 +110,6 @@ void main() {
     // Transform light direction to view space to match our normal
     // We use gbufferModelView (not Inverse) to go from World Space -> View Space
     vec3 lightDir = normalize((mat3(gbufferModelView) * worldLightDir));
-
-    vec3 lightColor = isDay ? vec3(1.0, 0.95, 0.85) : vec3(0.15, 0.25, 0.45);
 
     float nDotL = lambert(normal, lightDir);
 
@@ -104,7 +123,44 @@ void main() {
     vec3 directIllum = lightColor * diffuse * shadow;
     vec3 indirectIllum = getLightmapColor(lmcoord);
 
-    vec3 finalColor = baseColor.rgb * (directIllum + indirectIllum);
+    // Volumetric Lighting (God Rays) via Raymarching
+    // We only calculate this for daytime to save performance.
+    vec3 volumetricLighting = vec3(0.0);
+    if (isDay && isEyeInWater == 0) {
+        int steps = 12; // Modest step count for performance
+        // Simple hash based on pixel coordinate for dithering ray start
+        float dither = fract(sin(dot(texcoord, vec2(12.9898, 78.233))) * 43758.5453);
+
+        vec3 startPos = (gbufferModelViewInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz; // Camera pos in world space
+        vec3 rayVector = worldPos - startPos;
+        float rayLength = length(rayVector);
+        vec3 rayDir = rayVector / rayLength;
+
+        // Limit max ray distance to 30 blocks to save on far-away useless calculations
+        float maxDistance = min(rayLength, 30.0);
+        float stepSize = maxDistance / float(steps);
+        vec3 currentPos = startPos + rayDir * (stepSize * dither);
+
+        float scattering = 0.0;
+        for (int i = 0; i < steps; i++) {
+            float sampleShadow = getShadow(currentPos);
+            scattering += sampleShadow;
+            currentPos += rayDir * stepSize;
+        }
+
+        // Normalize
+        scattering /= float(steps);
+
+        // Mie scattering approximation (forward scattering peak)
+        vec3 viewDir = normalize(viewPos);
+        float phase = clamp(dot(viewDir, lightDir) * 0.5 + 0.5, 0.0, 1.0);
+        phase = pow(phase, 4.0); // Sharpen the glow around the sun
+
+        // Add a base multiplier so it's visible even away from the sun
+        volumetricLighting = lightColor * scattering * (phase + 0.1) * 0.15;
+    }
+
+    vec3 finalColor = baseColor.rgb * (directIllum + indirectIllum) + volumetricLighting;
 
     if (materialID == 4.0) {
         vec3 viewDir = normalize(-viewPos);
@@ -116,6 +172,20 @@ void main() {
     // If it is a cloud (materialID == 5.0), bypass shadows and diffuse lighting
     if (materialID == 5.0) {
         finalColor = baseColor.rgb; // Render clouds fully bright / original color
+    }
+
+    // Underwater Fog Effect
+    if (isEyeInWater == 1) {
+        float fogDistance = length(viewPos);
+        float fogDensity = 0.05; // Density of the water fog
+        float fogFactor = exp(-fogDensity * fogDistance);
+        fogFactor = clamp(fogFactor, 0.0, 1.0);
+
+        vec3 waterFogColor = vec3(0.1, 0.4, 0.6) * indirectIllum; // Tinted by ambient light
+        finalColor = mix(waterFogColor, finalColor, fogFactor);
+
+        // Slightly tint everything blueish when underwater
+        finalColor *= vec3(0.5, 0.8, 1.0);
     }
 
     gl_FragData[0] = vec4(finalColor, baseColor.a);

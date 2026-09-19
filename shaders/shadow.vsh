@@ -35,12 +35,14 @@ void main() {
         float wave = sin(frameTimeCounter * waveSpeed + absPos.x + absPos.z) * waveStrength;
         wave += sin(frameTimeCounter * waveSpeed * 1.3 + absPos.x * 2.0) * (waveStrength * 0.5);
 
-        float swayMultiplier = isGrass ? (1.0 - clamp(gl_MultiTexCoord0.y, 0.0, 1.0)) : 1.0;
+        // Use local Y for grass to pin the bottom
+        float localY = fract(absPos.y - 0.01);
+        float swayMultiplier = isGrass ? localY : 1.0;
 
         worldPos.x += wave * swayMultiplier;
         worldPos.z += wave * swayMultiplier * 0.5;
 
-        viewPos = gl_ModelViewMatrix * worldPos;
+        viewPos = shadowModelView * worldPos;
     }
 
     vec4 projPos = gl_ProjectionMatrix * viewPos;
