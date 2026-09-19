@@ -69,9 +69,9 @@ void main() {
     bool isDay = (worldTime < 13000 || worldTime > 23000);
 
     // Calculate basic sky and light colors based on time
-    vec3 zenithColor = isDay ? vec3(0.1, 0.3, 0.6) : vec3(0.01, 0.02, 0.05);
-    vec3 horizonColor = isDay ? vec3(0.5, 0.7, 0.9) : vec3(0.05, 0.1, 0.2);
-    vec3 lightColor = isDay ? vec3(1.0, 0.95, 0.85) : vec3(0.15, 0.25, 0.45);
+    vec3 zenithColor = isDay ? vec3(0.05, 0.15, 0.4) : vec3(0.005, 0.01, 0.02); // Deeper, more realistic sky blue
+    vec3 horizonColor = isDay ? vec3(0.4, 0.6, 0.85) : vec3(0.02, 0.05, 0.1); // Slightly less washed-out horizon
+    vec3 lightColor = isDay ? vec3(1.4, 1.3, 1.1) : vec3(0.1, 0.2, 0.4); // Brighter, warmer sunlight, darker moonlight
 
     // Sunset / Sunrise logic
     float sunsetFactor = 0.0;
@@ -83,9 +83,9 @@ void main() {
     }
 
     if (sunsetFactor > 0.0) {
-        vec3 sunsetColor = vec3(1.0, 0.4, 0.1);
+        vec3 sunsetColor = vec3(1.2, 0.35, 0.05); // More dramatic sunset
         horizonColor = mix(horizonColor, sunsetColor, sunsetFactor);
-        lightColor = mix(lightColor, vec3(1.0, 0.5, 0.2), sunsetFactor);
+        lightColor = mix(lightColor, vec3(1.5, 0.6, 0.2), sunsetFactor);
     }
 
     // If it's the sky background (depth == 1.0), we just output whatever was rendered
@@ -119,10 +119,14 @@ void main() {
         shadow = getShadow(worldPos);
     }
 
-    float diffuse = clamp(nDotL * 0.5 + 0.5, 0.0, 1.0);
+    // Increase lighting contrast: darker shadows, stronger diffuse
+    float diffuse = clamp(nDotL, 0.0, 1.0); // Harder diffuse instead of half-lambert
+    float ambientFill = clamp(nDotL * 0.5 + 0.5, 0.0, 1.0) * 0.3; // Small ambient fill for non-sunlit sides
 
-    vec3 directIllum = lightColor * diffuse * shadow;
-    vec3 indirectIllum = getLightmapColor(lmcoord);
+    vec3 directIllum = lightColor * (diffuse * shadow + ambientFill * (1.0 - shadow));
+
+    // Reduce artificial block light map intensity slightly for natural look outdoors
+    vec3 indirectIllum = getLightmapColor(lmcoord) * (isDay ? 0.7 : 1.0);
 
     // Volumetric Lighting (God Rays) via Raymarching
     // We only calculate this for daytime to save performance.
@@ -155,10 +159,10 @@ void main() {
         // Mie scattering approximation (forward scattering peak)
         vec3 viewDir = normalize(viewPos);
         float phase = clamp(dot(viewDir, lightDir) * 0.5 + 0.5, 0.0, 1.0);
-        phase = pow(phase, 4.0); // Sharpen the glow around the sun
+        phase = pow(phase, 8.0); // Sharpen the glow around the sun for a more realistic bloom core
 
-        // Add a base multiplier so it's visible even away from the sun
-        volumetricLighting = lightColor * scattering * (phase + 0.1) * 0.15;
+        // Add a base multiplier so it's visible even away from the sun, increase overall intensity
+        volumetricLighting = lightColor * scattering * (phase + 0.05) * 0.4; // Stronger godrays
     }
 
     vec3 finalColor = baseColor.rgb * (directIllum + indirectIllum) + volumetricLighting;

@@ -26,11 +26,12 @@ vec3 getWaterNormal(vec3 worldPos) {
     float n2 = noise(p * 2.0 - time * 1.2);
     float n3 = noise(p * 4.0 + time * 0.8);
 
+    // Increase normal mapping strength for more dramatic ripples/waves
     vec2 d = vec2(0.01, 0.0);
-    float dx = noise(p + d.xy + time) - n1;
-    float dz = noise(p + d.yx + time) - n1;
+    float dx = (noise(p + d.xy + time) - n1) * 2.5;
+    float dz = (noise(p + d.yx + time) - n1) * 2.5;
 
-    vec3 normal = normalize(vec3(-dx, 0.1, -dz));
+    vec3 normal = normalize(vec3(-dx, 0.08, -dz)); // Lower Y component for steeper normals
     return normalize((gbufferModelView * vec4(normal, 0.0)).xyz);
 }
 
@@ -44,8 +45,9 @@ void main() {
     if (vNormal.y > 0.9 && albedo.a < 0.95) {
         finalNormal = getWaterNormal(vWorldPos);
         materialID = 4.0; // water
-        albedo.rgb *= vec3(0.6, 0.8, 0.9);
-        albedo.a = 0.6;
+        // Deep realistic ocean/lake color, less pale blue
+        albedo.rgb *= vec3(0.15, 0.35, 0.45);
+        albedo.a = 0.8; // Higher opacity for more substance
     }
 
     gl_FragData[0] = vec4(srgbToLinear(albedo.rgb), albedo.a);
